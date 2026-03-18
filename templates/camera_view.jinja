@@ -2,17 +2,66 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Title</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Responsive Image Grid</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
+
+        .grid-container {
+            height: 100vh;
+        }
+
+        .img-container {
+            height: 50vh;
+            padding: 0;
+        }
+
+        img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* fill without distortion */
+        }
+
+        @media (max-width: 768px) {
+            .img-container {
+                height: 25vh; /* 4 stacked images */
+            }
+        }
+    </style>
 </head>
 <body>
-<div>
-    <div>Camera Server</div>
-   
-    <img id='camera-image'
-            src="/camera/0/get_latest_frame"
-            alt="camera"
-            width="640px"
-    />
+
+<div class="container-fluid grid-container">
+    <div class="row g-0 h-100">
+
+        {% for index in range(num_cameras) %}
+        <div class="col-12 col-md-6 img-container">
+            <img id="camera {{index}}" src="" alt="camera {{index}}">
+        </div>
+
+        {% endfor %}
+
+    </div>
 </div>
+<script>
+    for (let i = 0; i<{{num_cameras}}; i++){
+     const img = document.getElementById('camera ' + i);
+
+    setInterval(() => {
+        // Add timestamp to prevent caching
+        img.src = `/camera/${i}/get_latest_frame?t=${new Date().getTime()}`;
+    }, 1000);
+    }
+
+</script>
 </body>
 </html>
+// ///////////
+

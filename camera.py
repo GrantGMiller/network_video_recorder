@@ -1,23 +1,27 @@
 import datetime
 import json
+import os
 import subprocess
 import threading
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import List, Dict, Callable
+from typing import List, Dict
 
 import cv2
 import requests
 from ultralytics import YOLO
 
 from helpers import get_datetime_from_filename, VIDEO_FILENAME_PATTERN, \
-    get_objects_filename_from_datetime
+    get_objects_filename_from_datetime, get_image_filename_from_datetime
 
 VIDEO_CHUNK_SIZE = 5  # seconds, size of each video file
 
 
 class Camera:
+    IMAGE_TIMEOUT = 5  # if no image is requested for IMAGE_TIMEOUT, stop writing them to disk
+    IMAGES_PER_SECOND = 1  # how many images per second to capture
+    MAX_IMAGE_AGE = 60  # images older than MAX_IMAGE_AGE seconds will be deleted
 
     def __init__(
             self,
@@ -46,10 +50,18 @@ class Camera:
         self._last_objects_detected = []
 
         #
+
         self.process_dict: Dict[str, subprocess.Popen | None] = defaultdict(lambda: None)
+
+        self.object_detection_model = YOLO("yolov8n.pt")
         self.is_object_detection_running = False
-        self._capture_last_frame = False
-        self.last_frame_callback: Callable | None = None
+
+        self.last_frame = None
+        self.last_frame_with_annotations = None
+
+        self._capture_images = False  # capture a few images on init
+        self._images_dir = self._output_dir / self.camera_name / 'images'
+        self._images_dir.mkdir(parents=True, exist_ok=True)
 
     def start_recording(self):
         for index, rtsp_url in enumerate(self.rtsp_urls):
@@ -100,12 +112,24 @@ class Camera:
         # write to file
         video_output_dir = list(self._output_dirs.values())[0]
         newest_file_timestamp = get_newest_file_timestamp(video_output_dir)
+        if not newest_file_timestamp:
+            # if there is no video file, then create one obj file per minute
+            newest_file_timestamp = datetime.datetime.now().replace(second=0).timestamp()
+
         newest_file_dt = datetime.datetime.fromtimestamp(newest_file_timestamp)
 
         filename = self._detected_objects_dir / get_objects_filename_from_datetime(newest_file_dt)
 
         if filename.exists():
-            old_data = json.load(open(filename))
+            with open(filename) as f:
+                try:
+                    old_data = json.load(f)
+                except Exception as e:
+                    print('f.read()=', f.read())
+                    print('filename=', filename)
+                    print('newest_file_dt=', newest_file_dt)
+                    print('error reading json', e)
+                    old_data = {}
         else:
             old_data = {}
 
@@ -131,7 +155,6 @@ class Camera:
     def _do_object_detection(self):
         self.is_object_detection_running = True
 
-        model = YOLO("yolov8n.pt")
         cap = cv2.VideoCapture(self.object_detection_rtsp_url)
         self.object_detection_cap = cap
 
@@ -145,52 +168,110 @@ class Camera:
 
             # we can also limit the kinds of objects detected with
             # results = model(frame, conf=0.7, classes=[0]) # 0 is a person
-            results = model.track(frame, conf=0.7, persist=True)
+            obj_detect_results = self.object_detection_model.track(frame, conf=0.7, persist=True)
 
             detected_objs = defaultdict(list)
-            for r in results:
+            for r in obj_detect_results:
                 for box in r.boxes:
                     cls = int(box.cls[0])
 
-                    label = model.names[cls]
+                    label = self.object_detection_model.names[cls]
 
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
                     detected_objs[label].append((x1, y1, x2, y2))
 
             self._log_object_detected(detected_objs)
 
-            print('self.capture_last_frame=', self._capture_last_frame)
-            print('last_frame_callback=', self.last_frame_callback)
-            if self._capture_last_frame and self.last_frame_callback:
-                self._capture_last_frame = False
+            # save the image with object_box and label
+            print('capture_images=', self._capture_images)
+            self.last_frame = frame
+            self.last_frame_with_annotations = frame.copy()
 
-                annotated = frame.copy()
+            for r in obj_detect_results:
+                for box in r.boxes:
+                    cls = int(box.cls[0])
+                    label = self.object_detection_model.names[cls]
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    # draw rectangle
+                    cv2.rectangle(
+                        self.last_frame_with_annotations,
+                        (x1, y1),
+                        (x2, y2),
+                        (0, 255, 0),
+                        2
+                    )
 
-                for label, boxes in detected_objs.items():
-                    for (x1, y1, x2, y2) in boxes:
-                        # draw rectangle
-                        cv2.rectangle(
-                            annotated,
-                            (x1, y1),
-                            (x2, y2),
-                            (0, 255, 0),
-                            2
-                        )
+                    # draw label text
+                    cv2.putText(
+                        self.last_frame_with_annotations,
+                        label,
+                        (x1, y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 255, 0),
+                        2,
+                        cv2.LINE_AA
+                    )
 
-                        # draw label text
-                        cv2.putText(
-                            annotated,
-                            label,
-                            (x1, y1 - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.6,
-                            (0, 255, 0),
-                            2,
-                            cv2.LINE_AA
-                        )
+    def save_img(self, frame, obj_detect_results):
+        print('save_img', len(obj_detect_results))
+        annotated = frame.copy()
 
-                self.last_frame_callback(ret, annotated)
-                self.last_frame_callback = None
+        for r in obj_detect_results:
+            for box in r.boxes:
+                cls = int(box.cls[0])
+                label = self.object_detection_model.names[cls]
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                # draw rectangle
+                cv2.rectangle(
+                    annotated,
+                    (x1, y1),
+                    (x2, y2),
+                    (0, 255, 0),
+                    2
+                )
+
+                # draw label text
+                cv2.putText(
+                    annotated,
+                    label,
+                    (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 255, 0),
+                    2,
+                    cv2.LINE_AA
+                )
+
+        save_to_path = self._images_dir / get_image_filename_from_datetime(
+            datetime.datetime.now()
+        )
+        print('save_to_path=', save_to_path)
+        cv2.imwrite(
+            save_to_path,
+            annotated
+        )
+
+    def get_latest_image_dt(self):
+        ret_dt = None
+        now_dt = datetime.datetime.now()
+        old_images = []
+
+        for filepath in self._images_dir.iterdir():
+            filepath_dt = get_datetime_from_filename(filepath)
+
+            # delete old images
+            if now_dt - filepath_dt > datetime.timedelta(seconds=self.MAX_IMAGE_AGE):
+                old_images.append(filepath)
+
+            if ret_dt is None or ret_dt < filepath_dt:
+                ret_dt = filepath_dt
+
+        for old_img in old_images:
+            print('deleting old image', old_img)
+            os.remove(old_img)
+
+        return ret_dt
 
     def stop_object_detection(self):
         self.is_object_detection_running = False
@@ -258,18 +339,15 @@ class Camera:
 
         return ret
 
-    def get_latest_frame_jpeg(self, callback):
-        '''
-
-        :param callback: a function that will be called
-        with a single arg that is the result of cap.read()
-        :return:
-        '''
-        self._capture_last_frame = True
-        self.last_frame_callback = callback
-        print('get_latest_frame_jpeg, _capture_last_frame=',
-              self._capture_last_frame,
-              ', last_frame_callback=', self.last_frame_callback)
+    def get_latest_frame_path(self):
+        ret_path = None
+        ret_dt = None
+        for filepath in self._images_dir.iterdir():
+            filepath_dt = get_datetime_from_filename(filepath)
+            if ret_dt is None or ret_dt < filepath_dt:
+                ret_path = filepath
+                ret_dt = filepath_dt
+        return ret_path
 
 
 def start_record_thread(rtsp_url: str, output_dir: Path, cam_obj: Camera):

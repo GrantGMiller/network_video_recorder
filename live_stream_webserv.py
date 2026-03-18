@@ -2,12 +2,11 @@
 # cd backend
 # pipenv shell
 # python main.py
-import time
 from pathlib import Path
 from typing import List
 
 import cv2
-from flask import Flask, Response, render_template
+from flask import Flask, render_template, Response
 
 import config
 from camera import Camera
@@ -21,38 +20,27 @@ app = Flask(
 
 @app.route('/')
 def index():
-    return render_template('camera_view.jinja')
-
-
-@app.route("/camera/<index>/get_latest_frame")
-def camera(index):
-    camera = cameras[int(index)]
-
-    last_frame = None
-
-    def save_frame(frame):
-        print('save_frame(frame=', frame)
-        if not frame:
-            return
-        nonlocal last_frame
-        last_frame = frame
-
-    camera.get_latest_frame_jpeg(
-        save_frame
+    return render_template(
+        'camera_view.jinja',
+        num_cameras=len(cameras)
     )
 
-    while not last_frame:
-        print('waiting for frame...')
-        time.sleep(0.5)
 
-    _, jpeg = cv2.imencode(".jpg", last_frame)
-    return Response(
-        (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n"
-        )
-        , mimetype="multipart/x-mixed-replace; boundary=frame"
-    )
+@app.route("/camera/<cam_index>/get_latest_frame")
+def camera(cam_index):
+    cam = cameras[int(cam_index)]
+    # print('cam.last_frame_with_annotations=', cam.last_frame_with_annotations)
+    if cam.last_frame_with_annotations is None:
+        return 'no image', 404
+
+    frame = cam.last_frame_with_annotations
+    # Encode frame as JPEG
+    _, buffer = cv2.imencode('.jpg', frame)
+
+    # Convert to bytes
+    frame_bytes = buffer.tobytes()
+
+    return Response(frame_bytes, mimetype='image/jpeg')
 
 
 cameras: List[Camera] = []
@@ -66,7 +54,7 @@ if __name__ == "__main__":
             output_dir=Path(kwargs['output_dir'])
         )
         cameras.append(camera)
-        camera.start_recording()
+        # camera.start_recording()
         camera.start_object_detection()
         print('is_recording=', camera.is_recording)
         print('is_object_detection_running=', camera.is_object_detection_running)
