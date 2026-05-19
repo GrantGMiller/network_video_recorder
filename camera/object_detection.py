@@ -7,6 +7,7 @@ import cv2
 from ultralytics import YOLO
 
 obj_detection_model = YOLO("yolov8n.pt")
+print('obj model names=', obj_detection_model.names)
 
 motion_detection_model: Dict[str, Any] = {}
 
@@ -25,6 +26,7 @@ def start_object_detection(rtsp_url, on_objects_detected: Optional[Callable[[lis
 
 
 def stop_object_detection(rtsp_url):
+    print('stop_object_detection', rtsp_url)
     is_recording.pop(rtsp_url)
     motion_detection_model.pop(rtsp_url)
 
@@ -40,10 +42,12 @@ def _start_detection_loop(rtsp_url, on_objects_detected):
     last_objects_detected = []
     while is_recording.get(rtsp_url, None):
         ret, frame = cap.read()
-        if not ret:
+        if not ret or frame is None:
             cap.release()
             print('opencv stream stalled, restarting')
             time.sleep(3)
+            cap = cv2.VideoCapture(rtsp_url)
+            continue
 
         last_frame[rtsp_url] = frame
         last_frame_with_annotation[rtsp_url] = frame.copy()
@@ -68,7 +72,7 @@ def _start_detection_loop(rtsp_url, on_objects_detected):
         if new_objs:
             print('newly detected objects: {}'.format(new_objs))
             if on_objects_detected:
-                on_objects_detected(new_objs)
+                on_objects_detected(detected_objs)
 
 
 def draw_label_and_boxes(rtsp_url, frame):

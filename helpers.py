@@ -23,5 +23,14 @@ def get_video_filename_from_datetime(dt: datetime.datetime):
 def get_objects_filename_from_datetime(dt: datetime.datetime):
     return dt.strftime(OBJECTS_FILENAME_PATTERN)
 
+
 def get_image_filename_from_datetime(dt: datetime.datetime):
     return dt.strftime(IMAGE_FILENAME_PATTERN)
+
+
+def is_recording_filename(filename: str):
+    return 'video' in filename
+
+
+def is_object_detection_filename(filename: str):
+    return 'objects' in filename

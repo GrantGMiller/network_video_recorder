@@ -8,7 +8,7 @@ from camera.file_helpers import get_newest_file_timestamp, VIDEO_FILENAME_PATTER
 
 processes: Dict[str, subprocess.Popen] = {}  # {rtsp_url: thread}
 
-VIDEO_CHUNK_SIZE: int = 5  # seconds
+VIDEO_CHUNK_SIZE: int = 60  # seconds
 
 '''
 These threads monitor the files produced by the recording process.
@@ -20,7 +20,7 @@ threads: Dict[str, threading.Thread] = {}
 
 def start_recording(rtsp_url: str, output_dir: Path):
     print('start recording')
-    output_file_dir = output_dir / 'video'
+    output_file_dir = output_dir
     output_file_dir.mkdir(parents=True, exist_ok=True)
 
     output_file_pattern = str(output_file_dir / VIDEO_FILENAME_PATTERN)
@@ -61,6 +61,7 @@ def _monitor_recording(rtsp_url: str, output_dir: Path):
             last_file_time = newest_file_time
 
         if time.time() - newest_file_time < VIDEO_CHUNK_SIZE:
+            # give this thread a chance to die
             continue
 
         if newest_file_time > last_file_time:
@@ -84,6 +85,7 @@ def _monitor_recording(rtsp_url: str, output_dir: Path):
 
 
 def stop_recording(rtsp_url: str):
+    print('stop recording')
     process = processes.pop(rtsp_url, None)
     if process:
         process.kill()

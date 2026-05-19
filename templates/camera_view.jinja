@@ -57,7 +57,7 @@
     setInterval(() => {
         // Add timestamp to prevent caching
         img.src = `/camera/${i}/get_latest_frame?t=${new Date().getTime()}`;
-    }, 1000);
+    }, 500);
     }
 
 </script>
