@@ -1,1 +1,6 @@
 config.py
+__pycache__/
+camera/__pycache__/
+gerror.log
+supervisor_err.log
+supervisor_out.log
