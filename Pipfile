@@ -3,12 +3,26 @@ url = "https://pypi.org/simple"
 verify_ssl = true
 name = "pypi"
 
+<<<<<<< HEAD
 [packages]
 ultralytics = "*"
 requests = "*"
+=======
+[[source]]
+url = "https://download.pytorch.org/whl/cpu"
+verify_ssl = true
+name = "pytorch-cpu"
+>>>>>>> 28a4d49 (got it running on ubuntu)
 
-[dev-packages]
+[packages]
+requests = "*"
+torch = {version = "*", index = "pytorch-cpu"}
+torchvision = {version = "*", index = "pytorch-cpu"}
+flask = "*"
+ultralytics = "*"
+gunicorn = "*"
 
 [requires]
-python_version = ">=3.10"
 python_full_version = ">=3.10"
+
+[dev-packages]
