@@ -3,16 +3,10 @@ url = "https://pypi.org/simple"
 verify_ssl = true
 name = "pypi"
 
-<<<<<<< HEAD
-[packages]
-ultralytics = "*"
-requests = "*"
-=======
 [[source]]
 url = "https://download.pytorch.org/whl/cpu"
 verify_ssl = true
 name = "pytorch-cpu"
->>>>>>> 28a4d49 (got it running on ubuntu)
 
 [packages]
 requests = "*"
